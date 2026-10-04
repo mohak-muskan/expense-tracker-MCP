@@ -8,10 +8,13 @@ CATEGORIES_PATH = os.path.join(os.path.dirname(__file__), "categories.json")
 
 mcp = FastMCP(name="expense-tracker")
 
+_db_ready = False
+_db_lock = asyncio.Lock()
+
 
 async def init_db():
     async with aiosqlite.connect(DB_PATH, timeout=30) as conn:
-        await conn.execute("PRAGMA journal_mode=WAL")  # persistent; readers don't block writers
+        await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS expenses(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +28,14 @@ async def init_db():
         await conn.commit()
 
 
-asyncio.run(init_db())
+async def ensure_db():
+    global _db_ready
+    if _db_ready:
+        return
+    async with _db_lock:
+        if not _db_ready:
+            await init_db()
+            _db_ready = True
 
 
 @mcp.tool()
@@ -37,6 +47,7 @@ async def add_expense(
     note: str = "",
 ):
     '''Add a new expense entry to the database.'''
+    await ensure_db()
     async with aiosqlite.connect(DB_PATH, timeout=30) as conn:
         cur = await conn.execute(
             "INSERT INTO expenses(date, amount, category, subcategory, note) VALUES (?,?,?,?,?)",
@@ -49,6 +60,7 @@ async def add_expense(
 @mcp.tool()
 async def list_expenses(start_date: str, end_date: str):
     '''List expense entries within an inclusive date range.'''
+    await ensure_db()
     async with aiosqlite.connect(DB_PATH, timeout=30) as conn:
         cur = await conn.execute(
             """
@@ -67,6 +79,7 @@ async def list_expenses(start_date: str, end_date: str):
 @mcp.tool()
 async def summarize(start_date: str, end_date: str, category: str | None = None):
     '''Summarizes expenses within a date range, optionally for one category.'''
+    await ensure_db()
     query = """
         SELECT category, SUM(amount) AS total_amount
         FROM expenses
