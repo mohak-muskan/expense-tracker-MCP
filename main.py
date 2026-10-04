@@ -94,8 +94,6 @@ def _read_categories() -> str:
 
 @mcp.resource("expense://categories", mime_type="application/json")
 async def categories():
-    # Read fresh each time so you can edit the file without restarting.
-    # File I/O is blocking, so run it in a worker thread.
     return await asyncio.to_thread(_read_categories)
 
 
